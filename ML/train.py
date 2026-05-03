@@ -186,6 +186,8 @@ class ModelTrainer:
                 "run_id":       best["run_id"],
             }, f)
         logger.info(f"Best model saved → {pkl_path}")
+        
+        self._upload_to_supabase(pkl_path, best["metrics"], best["name"])
 
         # ── Summary table ─────────────────────────────────────────────
         summary = pd.DataFrame([r["metrics"] | {"model": r["name"]} for r in results])
@@ -193,3 +195,55 @@ class ModelTrainer:
         logger.info(f"\nModel Comparison:\n{summary.to_string()}")
 
         return {"best": best, "all_results": results, "summary": summary}
+    
+    def _upload_to_supabase(self, pkl_path: str, metrics: dict, model_name: str):
+        try:
+            import os
+            from supabase import create_client
+            from dotenv import load_dotenv
+            from datetime import datetime
+            load_dotenv()
+
+            client = create_client(
+                os.getenv("SUPABASE_URL"),
+                os.getenv("SUPABASE_KEY")
+            )
+
+            # ── Versioned filename ────────────────────────────────────────
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            versioned_name = f"{model_name}_{timestamp}.pkl"   # e.g. xgboost_20260503_113000.pkl
+
+            with open(pkl_path, "rb") as f:
+                data = f.read()
+
+            # ── Upload versioned copy ─────────────────────────────────────
+            client.storage.from_("models").upload(
+                path=f"versions/{versioned_name}",
+                file=data,
+                file_options={"content-type": "application/octet-stream"}
+            )
+            logger.info(f"Versioned model uploaded → versions/{versioned_name}")
+
+            # ── Always overwrite latest (for inference) ───────────────────
+            client.storage.from_("models").upload(
+                path="best_model.pkl",
+                file=data,
+                file_options={"content-type": "application/octet-stream", "upsert": "true"}
+            )
+            logger.info("Latest model updated → best_model.pkl")
+
+            # ── Log version metadata to Supabase table ────────────────────
+            client.table("model_versions").insert({
+                "model_name":  model_name,
+                "filename":    versioned_name,
+                "accuracy":    metrics["accuracy"],
+                "precision":   metrics["precision"],
+                "recall":      metrics["recall"],
+                "f1":          metrics["f1"],
+                "roc_auc":     metrics["roc_auc"],
+                "trained_on":  datetime.now().isoformat(),
+            }).execute()
+            logger.info("Model version logged to DB")
+
+        except Exception as e:
+            logger.error(f"Model upload failed: {e}")
