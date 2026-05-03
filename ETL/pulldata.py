@@ -1,27 +1,29 @@
-import aiohttp
+import yfinance as yf
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DataIngestion:
-    def __init__(self, api_key):
-        self.api_key = api_key
+    def __init__(self, api_key=None):
+        pass  # no API key needed
 
-    async def pulldata(self, symbol: str) -> dict:
-        url = (
-            f"https://www.alphavantage.co/query"
-            f"?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={self.api_key}"
-        )
+    async def pulldata(self, symbol: str, period: str = "5y") -> dict:
+        """
+        symbol: yfinance format
+                BSE stocks → "RELIANCE.BO"  (not .BSE)
+                NSE stocks → "RELIANCE.NS"
+                US stocks  → "AAPL"
+        period: 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, max
+        """
+        logger.info(f"[{symbol}] Fetching from yfinance ({period})...")
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                response.raise_for_status()
-                data = await response.json()
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period=period)
 
-        if "Note" in data:
-            raise Exception("Rate limit hit. Try again later.")
-        if "Information" in data:
-            raise Exception(f"API issue: {data['Information']}")
-        if "Error Message" in data:
-            raise Exception(f"Invalid symbol: {symbol}")
-        if "Time Series (Daily)" not in data:
-            raise Exception(f"Unexpected response format: {data}")
+        if df.empty:
+            raise Exception(f"No data returned for symbol: {symbol}")
 
-        return data
+        logger.info(f"[{symbol}] Got {len(df)} rows from yfinance")
+
+        # Return in same format rest of pipeline expects
+        return {"_dataframe": df, "symbol": symbol}

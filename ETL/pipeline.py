@@ -15,9 +15,9 @@ class ETLPipeline:
     async def run(self, symbol: str, table_name: str) -> dict:
         # Markets are closed on weekends — skip Saturday(5) and Sunday(6)
         today = date.today()
-        if today.weekday() in (5, 6):
-            logger.info(f"[{symbol}] Weekend — skipping.")
-            return {"status": "skipped", "reason": "weekend"}
+        # if today.weekday() in (5, 6):
+        #     logger.info(f"[{symbol}] Weekend — skipping.")
+        #     return {"status": "skipped", "reason": "weekend"}
 
         # Most recent trading day (yesterday's close is what Alpha Vantage serves at 3am)
         target_date = today - timedelta(days=1)
@@ -31,7 +31,7 @@ class ETLPipeline:
         raw_data = await self.ingestion.pulldata(symbol)
 
         # Step 2: Transform
-        df = self.transformer.transform_data(raw_data)
+        df = self.transformer.transform_data(raw_data,symbol)
 
         # Step 3: Filter to only new rows not already in DB
         existing = (
@@ -52,6 +52,9 @@ class ETLPipeline:
             return {"status": "skipped", "reason": "no_new_data"}
 
         # Step 4: Load
+        new_df = new_df.fillna(0)          # ← replace NaN with 0
+        # OR
+        new_df = new_df.dropna()           # ← drop rows with any NaN
         records = new_df.to_dict(orient="records")
         # Convert Timestamp to string for Supabase
         for r in records:

@@ -1,2 +1,14 @@
 .env
 .venv/
+__pycache__/
+
+mlflow.db
+
+# MLflow runs
+mlruns/
+
+# Trained models
+models/
+
+# EDA output plots
+ML/eda_output/
